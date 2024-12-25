@@ -40,6 +40,7 @@ class GPTDolomiteBlock(nn.Module):
         rope_cos_sin: torch.Tensor | None = None,
         cu_seqlens: torch.Tensor | None = None,
         max_seqlen: torch.Tensor | None = None,
+        hir_gate: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor]:
         residual = hidden_states
         hidden_states = self.ln_1(hidden_states)
@@ -56,6 +57,9 @@ class GPTDolomiteBlock(nn.Module):
         if self.m_residual is not None:
             hidden_states = hidden_states * self.m_residual
 
+        if hir_gate is not None:
+            hidden_states = hidden_states * hir_gate
+
         # residual connection
         hidden_states = hidden_states + residual
 
@@ -66,6 +70,9 @@ class GPTDolomiteBlock(nn.Module):
 
         if self.m_residual is not None:
             hidden_states = hidden_states * self.m_residual
+
+        if hir_gate is not None:
+            hidden_states = hidden_states * hir_gate
 
         # residual connection
         hidden_states = hidden_states + residual
