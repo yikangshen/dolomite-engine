@@ -53,6 +53,7 @@ class StickBreakingBlock(nn.Module):
         cu_seqlens: torch.Tensor | None = None,
         max_seqlen: torch.Tensor | None = None,
         sb_metadata=None,
+        hir_gate: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor]:
         residual = hidden_states
         hidden_states = self.ln_1(hidden_states)
@@ -70,6 +71,9 @@ class StickBreakingBlock(nn.Module):
         if self.m_residual is not None:
             attn_output = attn_output * self.m_residual
 
+        if hir_gate is not None:
+            hidden_states = hidden_states * hir_gate
+
         # residual connection
         hidden_states = attn_output + residual
         residual = hidden_states
@@ -80,6 +84,9 @@ class StickBreakingBlock(nn.Module):
 
         if self.m_residual is not None:
             feed_forward_hidden_states = feed_forward_hidden_states * self.m_residual
+
+        if hir_gate is not None:
+            hidden_states = hidden_states * hir_gate
 
         # residual connection
         hidden_states = residual + feed_forward_hidden_states
