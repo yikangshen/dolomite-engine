@@ -51,6 +51,8 @@ export NCCL_NVLS_ENABLE=1  #1(on) is the default anyway if available
 #export NCCL_NET_GDR_LEVEL=0
 #export NCCL_SHM_DISABLE=1
 
+export WANDB_BASE_URL=https://api.wandb.ai/
+export WANDB_ENTITY=yikang-research
 
 MASTER_ADDR=$(echo ${LSB_MCPU_HOSTS} | tr ' ' '\n' | head -n 1)
 MASTER_PORT=28444 #5${LSB_JOBID: -5:-1}

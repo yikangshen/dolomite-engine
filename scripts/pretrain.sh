@@ -5,6 +5,9 @@
 export NCCL_SOCKET_IFNAME="ib,bond"
 export NCCL_IB_CUDA_SUPPORT=1
 
+export WANDB_BASE_URL=https://api.wandb.ai/
+export WANDB_ENTITY=yikang-research
+
 MASTER_ADDRESS=$(echo ${LSB_MCPU_HOSTS} | tr ' ' '\n' | head -n 1)
 MASTER_PORT=5${LSB_JOBID: -5:-1}
 NNODES=$(echo ${LSB_MCPU_HOSTS} | tr ' ' '\n' | sed 'n; d' | wc -w)
