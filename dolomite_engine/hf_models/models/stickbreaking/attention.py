@@ -8,7 +8,8 @@ from transformers import DynamicCache
 from ...enums import InitMethod
 from ...modeling_utils import Attention, ParameterizedLinear
 from .config import StickBreakingConfig
-from .stickbreaking_attention import sb_attn, sb_attn_varlen
+from stickbreaking_attention import sb_attn, sb_attn_varlen
+from stickbreaking_attention.sb_naive_varlen import sb_attn_varlen as sb_attn_varlen_forget
 
 
 # torch._dynamo.config.cache_size_limit = 16
@@ -148,6 +149,7 @@ class PaddingFreeSBAttention(SBAttention):
         cu_seqlens: torch.Tensor | None = None,
         max_seqlen: torch.Tensor | None = None,
         sb_metadata=None,
+        forget_gate: torch.Tensor | None = None,
     ) -> torch.Tensor:
         assert past_key_values is None
 
@@ -156,10 +158,12 @@ class PaddingFreeSBAttention(SBAttention):
         softmax_scale = self._get_softmax_scale()
 
         value = value.permute(1, 0, 2)
-        attn_output, rem = sb_attn_varlen(
+        forget_gate = forget_gate.permute(1, 0).expand(value.size(0), -1)
+        attn_output, rem = sb_attn_varlen_forget(
             q=query.permute(1, 0, 2),
             k=key.permute(1, 0, 2),
             v=value,
+            log_forget=(forget_gate + 1e-6).log(),
             inv_temp=softmax_scale,
             cu_seqlens=cu_seqlens,
             max_seqlens=max_seqlen,

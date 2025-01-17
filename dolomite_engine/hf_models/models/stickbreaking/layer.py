@@ -66,13 +66,14 @@ class StickBreakingBlock(nn.Module):
             cu_seqlens=cu_seqlens,
             max_seqlen=max_seqlen,
             sb_metadata=sb_metadata,
+            forget_gate=hir_gate,
         )
 
         if self.m_residual is not None:
             attn_output = attn_output * self.m_residual
 
         if hir_gate is not None:
-            hidden_states = hidden_states * hir_gate
+            attn_output = attn_output * hir_gate
 
         # residual connection
         hidden_states = attn_output + residual
@@ -86,7 +87,7 @@ class StickBreakingBlock(nn.Module):
             feed_forward_hidden_states = feed_forward_hidden_states * self.m_residual
 
         if hir_gate is not None:
-            hidden_states = hidden_states * hir_gate
+            feed_forward_hidden_states = feed_forward_hidden_states * hir_gate
 
         # residual connection
         hidden_states = residual + feed_forward_hidden_states
