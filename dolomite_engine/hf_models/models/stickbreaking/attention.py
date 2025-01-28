@@ -163,7 +163,7 @@ class PaddingFreeSBAttention(SBAttention):
             q=query.permute(1, 0, 2),
             k=key.permute(1, 0, 2),
             v=value,
-            log_forget=(forget_gate + 1e-6).log(),
+            log_forget=forget_gate,
             inv_temp=softmax_scale,
             cu_seqlens=cu_seqlens,
             max_seqlens=max_seqlen,

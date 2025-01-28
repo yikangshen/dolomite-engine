@@ -40,8 +40,8 @@ class PreTrainedModelMixin(PreTrainedModel, GenerationMixin):
 
         self._tied_word_embeddings = config.tie_word_embeddings
 
-        if self._use_padding_free_transformer:
-            assert self._use_flash_attention_2, "padding free transformer only works with flash attention"
+        # if self._use_padding_free_transformer:
+        #     assert self._use_flash_attention_2, "padding free transformer only works with flash attention"
 
     def _init_weights(self, module: nn.Module) -> None:
         if hasattr(module, "reset_parameters"):
