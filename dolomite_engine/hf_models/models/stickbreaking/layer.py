@@ -53,12 +53,13 @@ class StickBreakingBlock(nn.Module):
         cu_seqlens: torch.Tensor | None = None,
         max_seqlen: torch.Tensor | None = None,
         sb_metadata=None,
-        key_log_gate: torch.Tensor | None = None,
-        query_gate: torch.Tensor | None = None,
-        mlp_gate: torch.Tensor | None = None,
+        att_log_gate: torch.Tensor | None = None,
+        res_gate: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor]:
         residual = hidden_states
         hidden_states = self.ln_1(hidden_states)
+        if key_value_states is not None:
+            key_value_states = self.ln_1(key_value_states)
 
         attn_output = self.attn(
             hidden_states,
@@ -68,18 +69,14 @@ class StickBreakingBlock(nn.Module):
             cu_seqlens=cu_seqlens,
             max_seqlen=max_seqlen,
             sb_metadata=sb_metadata,
-            forget_gate=key_log_gate,
+            forget_gate=att_log_gate,
         )
 
         if self.m_residual is not None:
             attn_output = attn_output * self.m_residual
 
-        if query_gate is not None:
-            attn_output = attn_output * query_gate
-
         # residual connection
         hidden_states = attn_output + residual
-        residual = hidden_states
 
         hidden_states = self.ln_2(hidden_states)
 
@@ -88,10 +85,11 @@ class StickBreakingBlock(nn.Module):
         if self.m_residual is not None:
             feed_forward_hidden_states = feed_forward_hidden_states * self.m_residual
 
-        if mlp_gate is not None:
-            feed_forward_hidden_states = feed_forward_hidden_states * mlp_gate
+        if res_gate is not None:
+            attn_output = attn_output * res_gate
+            feed_forward_hidden_states = feed_forward_hidden_states * res_gate
 
         # residual connection
-        hidden_states = residual + feed_forward_hidden_states
+        hidden_states = residual + attn_output + feed_forward_hidden_states
 
         return hidden_states
