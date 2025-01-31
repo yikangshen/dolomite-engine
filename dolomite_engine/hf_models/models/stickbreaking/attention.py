@@ -5,7 +5,7 @@ import torch.nn
 import torch.nn.functional as F
 from transformers import DynamicCache
 
-from ...enums import InitMethod
+from ...enums import InitMethod, AttentionHeadType
 from ...modeling_utils import Attention, ParameterizedLinear
 from .config import StickBreakingConfig
 from stickbreaking_attention import sb_attn, sb_attn_varlen
@@ -140,9 +140,66 @@ class SBAttention(Attention):
 
 
 class PaddingFreeSBAttention(SBAttention):
+    def __init__(self, config: StickBreakingConfig, causal: bool, layer_idx: int | None = None) -> None:
+        super().__init__(config, causal, layer_idx)
+
+        init_method = InitMethod(config.init_method)
+        initializer_range = config.initializer_range
+        m_width = config.m_width
+        std = initializer_range
+        if init_method == InitMethod.mup:
+            std /= math.sqrt(m_width)
+        self.c_attn = ParameterizedLinear(
+            self.hidden_size,
+            self.hidden_size,
+            bias=True,
+            std=std,
+        )
+        self.kv_attn = ParameterizedLinear(
+            self.hidden_size,
+            2 * self.num_key_value_heads * self.head_dim,
+            bias=True,
+            std=std,
+        )
+
+    def _prepare_qkv_for_forward(self, hidden_states: torch.Tensor, kv_states: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # ==========================================================================================
+        # hidden_states -> (batch_size, query_length, num_heads * head_dim)
+        # ==========================================================================================
+
+        # the output of following is a tuple if using MQA with tensor parallel
+        query_states = self.c_attn(hidden_states)
+        if kv_states is None:
+            kv_states = self.kv_attn(hidden_states)
+        else:
+            kv_states = self.kv_attn(kv_states)
+
+        # ==========================================================================================
+        # hidden_states -> (batch_size, query_length, [num_heads + num_key_value_heads * 2] * head_dim)
+        # ==========================================================================================
+
+        # for MHA, we can get away with doing just 1 transpose which is not true for GQA
+        if self.attention_head_type == AttentionHeadType.mha:
+            query, key, value = self._prepare_qkv_for_forward_mha(query_states, kv_states)
+        elif self.attention_head_type == AttentionHeadType.gqa:
+            query, key, value = self._prepare_qkv_for_forward_gqa(query_states, kv_states)
+        elif self.attention_head_type == AttentionHeadType.mqa:
+            query, key, value = self._prepare_qkv_for_forward_mqa(query_states, kv_states)
+        else:
+            raise ValueError(f"unexpected attention_head_type ({self.attention_head_type})")
+
+        # ==========================================================================================
+        # query -> (batch_size, num_heads, query_length, head_dim)
+        # key -> (batch_size, num_key_value_heads, query_length, head_dim)
+        # value -> (batch_size, num_key_value_heads, query_length, head_dim)
+        # ==========================================================================================
+
+        return query, key, value
+    
     def forward(
         self,
         hidden_states: torch.Tensor,
+        kv_states: torch.Tensor,
         past_key_values: DynamicCache | None = None,
         attention_mask: torch.Tensor | None = None,
         rope_cos_sin: torch.Tensor | None = None,
@@ -153,7 +210,7 @@ class PaddingFreeSBAttention(SBAttention):
     ) -> torch.Tensor:
         assert past_key_values is None
 
-        query, key, value = self._prepare_qkv_for_forward(hidden_states)
+        query, key, value = self._prepare_qkv_for_forward(hidden_states, kv_states)
 
         softmax_scale = self._get_softmax_scale()
 
@@ -180,12 +237,13 @@ class PaddingFreeSBAttention(SBAttention):
         return attn_output
 
     def _prepare_qkv_for_forward_mha(
-        self, hidden_states: torch.Tensor
+        self, query_states: torch.Tensor, kv_states: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        total_q = hidden_states.shape[0]
+        total_q = query_states.shape[0]
 
-        hidden_states = hidden_states.view(total_q, self.num_key_value_heads, -1)
-        query, key, value = hidden_states.chunk(3, dim=-1)
+        query = query_states.view(total_q, self.num_key_value_heads, -1)
+        kv_states = kv_states.view(total_q, self.num_key_value_heads, -1)
+        key, value = kv_states.chunk(2, dim=-1)
 
         return query, key, value
 

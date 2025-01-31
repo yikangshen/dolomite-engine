@@ -47,6 +47,7 @@ class StickBreakingBlock(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
+        kv_states: torch.Tensor | None = None,
         past_key_values: DynamicCache | None = None,
         attention_mask: torch.Tensor | None = None,
         rope_cos_sin: torch.Tensor | None = None,
@@ -58,11 +59,12 @@ class StickBreakingBlock(nn.Module):
     ) -> tuple[torch.Tensor]:
         residual = hidden_states
         hidden_states = self.ln_1(hidden_states)
-        if key_value_states is not None:
-            key_value_states = self.ln_1(key_value_states)
+        if kv_states is not None:
+            kv_states = self.ln_1(kv_states)
 
         attn_output = self.attn(
             hidden_states,
+            kv_states=kv_states,
             past_key_values=past_key_values,
             attention_mask=attention_mask,
             rope_cos_sin=rope_cos_sin,

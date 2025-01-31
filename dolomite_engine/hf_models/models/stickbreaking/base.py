@@ -176,16 +176,20 @@ class StickBreakingModel(StickBreakingPreTrainedModel, BaseModelMixin):
                 aux_loss += local_aux_loss
                 hir_gate_list.append((query_gate, key_gate))
 
+                if i < self.config.n_layer // 2:
+                    kv_states = hidden_states
+
                 hidden_states = block(
                     hidden_states,
+                    kv_states=kv_states.clone(),
                     past_key_values=past_key_values,
                     attention_mask=attention_mask,
                     rope_cos_sin=rope_cos_sin,
                     cu_seqlens=cu_seqlens,
                     max_seqlen=max_seqlen,
                     sb_metadata=sb_metadata,
-                    key_log_gate=(key_gate + 1e-6).log(),
-                    query_gate=query_gate,
+                    att_log_gate=(key_gate + 1e-6).log(),
+                    res_gate=query_gate,
                 )
 
                     
