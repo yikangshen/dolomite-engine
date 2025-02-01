@@ -1,9 +1,14 @@
 import torch
+import torch.nn as nn
 from transformers import DynamicCache
 
 from ...mixins import BaseMoEModelMixin, MoeModelOutputWithPastAndAuxLoss, PreTrainedMoEModelMixin
 from .config import MoEStickBreakingConfig
 from .layer import MoEStickBreakingBlock
+from ....utils import divide_if_divisible
+from ...config import CommonConfig
+from ...enums import AttentionHeadType, PositionEmbeddingType
+from ...modeling_utils import ParameterizedEmbedding, get_normalization_function
 
 
 class MoEStickBreakingPreTrainedModel(PreTrainedMoEModelMixin):
@@ -13,6 +18,40 @@ class MoEStickBreakingPreTrainedModel(PreTrainedMoEModelMixin):
 
 
 class MoEStickBreakingModel(MoEStickBreakingPreTrainedModel, BaseMoEModelMixin):
+    def _init_model(self, config: CommonConfig, **kwargs) -> None:
+        self.attention_head_type = AttentionHeadType(config.attention_head_type)
+        self.embed_dim = config.n_embd
+        self.num_heads = config.n_head
+        self.m_emb = config.m_emb
+        self.n_layer = config.n_layer
+        self.initializer_range = config.initializer_range
+
+        self.head_dim = divide_if_divisible(
+            self.embed_dim,
+            self.num_heads,
+            f"`embed_dim` ({self.embed_dim}) must be divisible by `num_heads` ({self.num_heads})",
+        )
+
+        self.wte = ParameterizedEmbedding(config.vocab_size, self.embed_dim, std=self.initializer_range)
+
+        self.drop = nn.Identity() if config.embd_pdrop == 0 else nn.Dropout(config.embd_pdrop)
+        self.h = self.layer_class(
+            config,
+            attention_implementation=self.attention_implementation,
+            use_padding_free_transformer=self._use_padding_free_transformer,
+            moe_implementation=self.moe_implementation,
+            layer_idx=None,
+        )
+        self.ln_f = get_normalization_function(
+            config.normalization_function, self.embed_dim, eps=config.layer_norm_epsilon
+        )
+
+        self.position_embedding_type = PositionEmbeddingType(config.position_embedding_type)
+        self._setup_positional_encoding()
+
+        # Initialize weights and apply final processing
+        self.post_init()
+
     def forward(
         self,
         input_ids: torch.Tensor | None = None,
@@ -56,13 +95,12 @@ class MoEStickBreakingModel(MoEStickBreakingPreTrainedModel, BaseMoEModelMixin):
         past_key_values = DynamicCache() if use_cache and past_key_values is None else past_key_values
         all_hidden_states = () if output_hidden_states else None
         all_router_logits = () if output_router_logits else None
-        total_aux_loss = 0
 
-        for block in self.h:
+        for i in range(self.n_layer):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            outputs = block(
+            outputs = self.h(
                 hidden_states,
                 past_key_values=past_key_values,
                 attention_mask=attention_mask,
@@ -70,7 +108,7 @@ class MoEStickBreakingModel(MoEStickBreakingPreTrainedModel, BaseMoEModelMixin):
                 cu_seqlens=cu_seqlens,
                 max_seqlen=max_seqlen,
                 output_router_logits=output_router_logits,
-                output_aux_loss=output_aux_loss,
+                output_aux_loss=output_aux_loss if i == self.n_layer - 1 else False,
                 sb_metadata=sb_metadata,
             )
 
@@ -81,9 +119,8 @@ class MoEStickBreakingModel(MoEStickBreakingPreTrainedModel, BaseMoEModelMixin):
                 all_router_logits += (outputs[0],)
                 outputs = outputs[1:]
 
-            if output_aux_loss:
+            if output_aux_loss and i == self.n_layer - 1:
                 aux_loss = outputs[0]
-                total_aux_loss = total_aux_loss + aux_loss
 
         hidden_states = self.ln_f(hidden_states)
 
@@ -96,5 +133,5 @@ class MoEStickBreakingModel(MoEStickBreakingPreTrainedModel, BaseMoEModelMixin):
             past_key_values=past_key_values,
             hidden_states=all_hidden_states,
             router_logits=all_router_logits,
-            aux_loss=total_aux_loss,
+            aux_loss=aux_loss,
         )
