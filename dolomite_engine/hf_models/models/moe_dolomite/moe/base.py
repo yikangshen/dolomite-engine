@@ -138,6 +138,8 @@ class MoE(nn.Module):
 
         self.dropout = nn.Identity() if residual_dropout == 0 else nn.Dropout(residual_dropout)
 
+        self.acc_freq = None
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         if not self.use_padding_free_transformer:
             batch_size, sequence_length, _ = hidden_states.shape
@@ -252,7 +254,12 @@ class MoE(nn.Module):
         if ProcessGroupManager.is_initialized() and ProcessGroupManager.get_data_parallel_world_size() > 1:
             freq = all_reduce(freq, reduceOp="sum", group=ProcessGroupManager.get_data_parallel_group())
 
-        switch_loss = num_experts * (F.normalize(acc_probs, p=1, dim=0) * F.normalize(freq, p=1, dim=0)).sum()
+        if self.acc_freq is None:
+            self.acc_freq = F.normalize(freq, p=1, dim=0)
+        else:
+            self.acc_freq = self.acc_freq * 0.98 + F.normalize(freq, p=1, dim=0) * 0.02
+
+        switch_loss = num_experts * (F.normalize(acc_probs, p=1, dim=0) * self.acc_freq).sum()
         z_loss = (torch.logsumexp(logits, dim=-1) ** 2).mean()
 
         loss = switch_loss + 0.1 * z_loss

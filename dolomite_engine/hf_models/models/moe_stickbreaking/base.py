@@ -95,6 +95,7 @@ class MoEStickBreakingModel(MoEStickBreakingPreTrainedModel, BaseMoEModelMixin):
         past_key_values = DynamicCache() if use_cache and past_key_values is None else past_key_values
         all_hidden_states = () if output_hidden_states else None
         all_router_logits = () if output_router_logits else None
+        total_aux_loss = 0.0
 
         for i in range(self.n_layer):
             if output_hidden_states:
@@ -108,7 +109,7 @@ class MoEStickBreakingModel(MoEStickBreakingPreTrainedModel, BaseMoEModelMixin):
                 cu_seqlens=cu_seqlens,
                 max_seqlen=max_seqlen,
                 output_router_logits=output_router_logits,
-                output_aux_loss=output_aux_loss if i == self.n_layer - 1 else False,
+                output_aux_loss=output_aux_loss,
                 sb_metadata=sb_metadata,
             )
 
@@ -119,8 +120,8 @@ class MoEStickBreakingModel(MoEStickBreakingPreTrainedModel, BaseMoEModelMixin):
                 all_router_logits += (outputs[0],)
                 outputs = outputs[1:]
 
-            if output_aux_loss and i == self.n_layer - 1:
-                aux_loss = outputs[0]
+            if output_aux_loss:
+                total_aux_loss += outputs[0]
 
         hidden_states = self.ln_f(hidden_states)
 
@@ -133,5 +134,5 @@ class MoEStickBreakingModel(MoEStickBreakingPreTrainedModel, BaseMoEModelMixin):
             past_key_values=past_key_values,
             hidden_states=all_hidden_states,
             router_logits=all_router_logits,
-            aux_loss=aux_loss,
+            aux_loss=total_aux_loss / self.n_layer,
         )
